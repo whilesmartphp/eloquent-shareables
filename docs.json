@@ -1,0 +1,14 @@
+{
+  "$schema": "https://raw.githubusercontent.com/whilesmart/docs-kit/main/schema/docs.schema.json",
+  "name": "Eloquent Shareables",
+  "description": "Easily track client synchronization states for Eloquent models in Laravel",
+  "icon": "refresh",
+  "category": {
+    "language": "php",
+    "framework": "laravel"
+  },
+  "sidebar": [
+    { "title": "Installation", "path": "docs/installation.md" },
+    { "title": "Usage", "path": "docs/usage.md" }
+  ]
+}
