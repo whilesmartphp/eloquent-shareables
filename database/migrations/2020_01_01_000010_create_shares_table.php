@@ -18,6 +18,7 @@ return new class () extends Migration {
             $table->string('access');
             $table->string('token');
             $table->timestamp('revoked_at')->nullable();
+            $table->timestamp('expires_at')->nullable();
             $table->string('owner_type');
             $table->unsignedBigInteger('owner_id');
             $table->timestamps();

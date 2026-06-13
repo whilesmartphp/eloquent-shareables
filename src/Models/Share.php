@@ -19,6 +19,7 @@ class Share extends Model
         'access',
         'token',
         'revoked_at',
+        'expires_at',
         'owner_type',
         'owner_id',
     ];
