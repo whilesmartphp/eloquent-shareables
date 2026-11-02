@@ -3,16 +3,18 @@
 namespace Workbench\App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-class User extends Authenticatable
+class User extends Authenticatable implements \Whilesmart\Shareables\Contracts\ShareAudience
 {
-    /** @use HasFactory<\Workbench\Database\Factories\UserFactory> */
-    use HasFactory;
-
     use Notifiable;
+    use \Whilesmart\Shareables\Traits\ReceivesShares;
+
+    public function admits(?\Illuminate\Contracts\Auth\Authenticatable $viewer): bool
+    {
+        return $viewer instanceof self && $this->is($viewer);
+    }
 
     /**
      * The attributes that are mass assignable.
