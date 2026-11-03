@@ -12,15 +12,14 @@ return new class () extends Migration {
     {
         Schema::create('shares', function (Blueprint $table) {
             $table->id();
-            $table->string('shareable_type');
-            $table->unsignedBigInteger('shareable_id');
-            $table->string('audience')->nullable();
-            $table->string('access');
-            $table->string('token');
+            $table->morphs('shareable');
+            $table->string('token')->unique();
             $table->timestamp('revoked_at')->nullable();
             $table->timestamp('expires_at')->nullable();
-            $table->string('owner_type');
-            $table->unsignedBigInteger('owner_id');
+            $table->string('password')->nullable();
+            $table->unsignedInteger('max_uses')->nullable();
+            $table->unsignedInteger('uses')->default(0);
+            $table->nullableMorphs('created_by');
             $table->timestamps();
             $table->softDeletes();
         });

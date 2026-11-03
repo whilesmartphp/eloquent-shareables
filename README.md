@@ -1,121 +1,117 @@
 # Eloquent Shareables
 
-[![Latest Version on Packagist](https://img.shields.io/packagist/v/whilesmart/eloquent-shareables.svg?style=flat-square)](https://packagist.org/packages/whilesmart/eloquent-shareables)
-[![GitHub Tests Action Status](https://img.shields.io/github/actions/workflow/status/whilesmart/eloquent-shareables/tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/whilesmart/eloquent-shareables/actions?query=workflow%3Atests+branch%3Amain)
-[![Total Downloads](https://img.shields.io/packagist/dt/whilesmart/eloquent-shareables.svg?style=flat-square)](https://packagist.org/packages/whilesmart/eloquent-shareables)
+Share Eloquent resources with users, teams or other model-based audiences. One link can grant different abilities to different recipients. Applications define membership and interpret ability names.
 
-**Eloquent Shareables** is a lightweight Laravel package that allows you to easily share Eloquent models with different audiences and owners. It supports assigning specific access levels, managing unique sharing tokens, and querying shared models.
-
----
+Requires PHP 8.4 and Laravel 12.
 
 ## Installation
 
-You can install the package via Composer:
-
 ```bash
-composer require whilesmart/eloquent-shareables
-```
-
-You should publish and run the migrations:
-
-```bash
-php artisan vendor:publish --tag="shareables-migrations"
+composer require whilesmart/eloquent-shareables:^2.0
 php artisan migrate
 ```
 
-You can optionally publish the config file:
+Migrations load automatically. Publishing them is optional. Publish configuration when customizing models:
 
 ```bash
-php artisan vendor:publish --tag="shareables-config"
+php artisan vendor:publish --tag=shareables-config
 ```
 
-This will create a `config/sharables.php` file in your application directory.
+## Recipient admission
 
----
-
-## Usage
-
-### Preparing Your Models
-
-Add the `Shareable` trait to any Eloquent model you want to share:
+Recipient models implement `ShareAudience`. Add `ReceivesShares` to remove their audience rows when they are permanently deleted.
 
 ```php
-namespace App\Models;
+use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Foundation\Auth\User as AuthenticatableUser;
+use Whilesmart\Shareables\Contracts\ShareAudience;
+use Whilesmart\Shareables\Traits\ReceivesShares;
 
-use Illuminate\Database\Eloquent\Model;
-use Whilesmart\Shareables\Traits\Shareable;
-
-class Post extends Model
+class User extends AuthenticatableUser implements ShareAudience
 {
-    use Shareable;
+    use ReceivesShares;
+
+    public function admits(?Authenticatable $viewer): bool
+    {
+        return $viewer instanceof self && $this->is($viewer);
+    }
 }
 ```
 
-### 1. Sharing Models
+A team or workspace implements the same contract using its current membership rules. The package does not assume a membership table or role hierarchy.
 
-To share a model, call the `share()` method:
+## Resource sharing
 
-```php
-// Share a post with read-only access to a specific audience, owned by the current user
-$share = $post->share('read', $user, 'team_123');
-
-// Share a post publicly with a custom or automatically generated token
-$publicShare = $post->share('view', $user);
-// A unique token (e.g. Str::random(40)) is generated if none is passed.
-```
-
-### 2. Checking Share Status
-
-You can check if a model is currently shared with an audience or via a specific token:
+Add `Whilesmart\Shareables\Traits\Shareable` to the resource model, then create a link:
 
 ```php
-// Check if shared with an audience (e.g. team_123)
-if ($post->isSharedWith('team_123')) {
-    // Shared!
-}
+$share = $document->share([$alice, $team], 'reader', createdBy: $alice);
+$share->setAudience($alice, 'editor');
 
-// Check if shared via a specific access token
-if ($post->isSharedViaToken($token)) {
-    // Shared!
-}
+$abilities = Share::resolveToken($share->token, $viewer);
 ```
 
-### 3. Revoking Shares
+`resolveToken` returns every distinct ability admitted by matching audiences. It does not rank abilities. A viewer matching both a user and team audience receives both abilities.
 
-Shares can be revoked either individually (for an audience) or all at once:
+An empty audience list grants nobody access. Public access requires an explicit null audience:
 
 ```php
-// Revoke sharing for a specific audience
-$post->revokeShare('team_123');
-
-// Revoke all shares for this model
-$post->revokeAllShares();
+$private = $document->share([], 'reader');
+$public = $document->share(null, 'reader');
 ```
 
-### 4. Querying Shared Models
+Removing the final audience makes a link private. It never makes it public.
 
-Use the `sharedWith` query scope to retrieve models shared with a specific audience:
+## Link constraints
 
 ```php
-$posts = Post::sharedWith('team_123')->get();
+$share = $document->share($team, 'reader', createdBy: $alice, constraints: [
+    'expires_at' => now()->addDay(),
+    'password' => 'a-passphrase-chosen-by-the-user',
+    'max_uses' => 10,
+]);
+
+$abilities = Share::resolveToken($share->token, $viewer, $providedPassword);
 ```
 
----
+Passwords are hashed and hidden from serialization. Token resolution checks expiry, revocation, password and current recipient admission. A successful resolution consumes one use; rejected resolutions consume none. The use limit is checked while locking the link inside a database transaction.
 
-## Testing
+## Queries and revocation
 
-You can run the package test suite using:
+```php
+$documents = Document::sharedWith($team, 'reader')->get();
+$shared = $document->isSharedWith($team, 'reader');
+$sharedViaLink = $document->isSharedViaToken($token, $viewer, 'reader', $password);
+
+$document->revokeShare($team);
+$document->revokeAllShares();
+```
+
+Audience queries include active, unprotected links only. They select grants for an audience; the application must authorize the caller's access to that audience. Use token resolution when checking password-protected links or consuming a use allowance.
+
+Revoking an audience keeps other recipients on the same link. Soft-deleting a resource revokes its links, and restoring it does not restore access. Permanently deleting it removes links and their audience rows. Enable foreign keys when using SQLite so audience cleanup cascades.
+
+## Host model customization
+
+`config/shareables.php` allows subclasses of `Share` and `Audience`:
+
+```php
+'models' => [
+    'share' => App\Models\Share::class,
+    'audience' => App\Models\ShareAudience::class,
+],
+```
+
+The configured models use the package's columns and relations. Application-specific membership, authorization, response formatting and financial calculations remain with the host application.
+
+## Development
 
 ```bash
 composer test
+composer phpcs:test
+composer phpmd
+composer phpstan
+composer pint:test
 ```
 
----
-
-## Changelog
-
-Please see [CHANGELOG](CHANGELOG.md) for more information on what has changed recently.
-
-## License
-
-The MIT License (MIT). Please see [License File](LICENSE) for more information.
+The package is MIT licensed. See [LICENSE](LICENSE).

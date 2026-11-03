@@ -1,102 +1,86 @@
-# Usage Guide
+# Recipient admission
 
-**Eloquent Shareables** provides a clean polymorphic trait and model relationship to manage sharing database records with other users, teams, or any custom audience. It supports tracking access levels, owner information, and unique share tokens.
-
-## Preparing Your Models
-
-To make an Eloquent model shareable, import and use the `Shareable` trait:
+Recipient models implement `ShareAudience`. Add `ReceivesShares` to remove their audience rows when they are permanently deleted.
 
 ```php
-namespace App\Models;
+use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Foundation\Auth\User as AuthenticatableUser;
+use Whilesmart\Shareables\Contracts\ShareAudience;
+use Whilesmart\Shareables\Traits\ReceivesShares;
 
-use Illuminate\Database\Eloquent\Model;
-use Whilesmart\Shareables\Traits\Shareable;
-
-class Post extends Model
+class User extends AuthenticatableUser implements ShareAudience
 {
-    use Shareable;
+    use ReceivesShares;
+
+    public function admits(?Authenticatable $viewer): bool
+    {
+        return $viewer instanceof self && $this->is($viewer);
+    }
 }
 ```
 
-## How It Works
+A team or workspace implements the same contract using its current membership rules. The package does not assume a membership table or role hierarchy.
 
-### 1. Creating a Share
+## Resource sharing
 
-You can share a model by calling `share()`. This requires an access level (e.g. `'read'`, `'write'`, `'admin'`) and an owner Model (e.g., the User sharing the record):
-
-```php
-$user = User::find(1);
-
-// Share a post with a team with 'read' access
-$share = $post->share('read', $user, 'team_123');
-
-// Share a post publicly (generating a random unique token automatically)
-$publicShare = $post->share('view', $user);
-```
-
-The parameters of the `share` method are:
-1. `string $access` — The access level/permission string.
-2. `Model $owner` — The Eloquent model representing the owner/creator of the share.
-3. `?string $audience` (optional) — The target audience (e.g., a team ID, department name, or user reference).
-4. `?string $token` (optional) — A specific token to use. If not provided, a random 40-character string will be generated.
-
-### 2. Checking Share Status
-
-You can verify whether a model is shared with a specific audience or via a specific token using helper methods:
+Add `Whilesmart\Shareables\Traits\Shareable` to the resource model, then create a link:
 
 ```php
-// Check if the post is shared with 'team_123'
-if ($post->isSharedWith('team_123')) {
-    // Has access!
-}
+$share = $document->share([$alice, $team], 'reader', createdBy: $alice);
+$share->setAudience($alice, 'editor');
 
-// Check if the post is shared via a specific secret link token
-if ($post->isSharedViaToken($token)) {
-    // Has access!
-}
+$abilities = Share::resolveToken($share->token, $viewer);
 ```
 
-> [!NOTE]
-> These methods only look for active shares (where `revoked_at` is `null`).
+`resolveToken` returns every distinct ability admitted by matching audiences. It does not rank abilities. A viewer matching both a user and team audience receives both abilities.
 
-### 3. Revoking Share Access
-
-To revoke access, set a revocation timestamp on the share records:
+An empty audience list grants nobody access. Public access requires an explicit null audience:
 
 ```php
-// Revoke sharing for a specific audience
-$post->revokeShare('team_123');
-
-// Revoke all shares (e.g. public links and team shares) for this model
-$post->revokeAllShares();
+$private = $document->share([], 'reader');
+$public = $document->share(null, 'reader');
 ```
 
-### 4. Querying Shared Models
+Removing the final audience makes a link private. It never makes it public.
 
-If you want to retrieve all models that have been shared with a particular audience, use the `sharedWith` query scope:
+## Link constraints
 
 ```php
-$sharedPosts = Post::sharedWith('team_123')->get();
+$share = $document->share($team, 'reader', createdBy: $alice, constraints: [
+    'expires_at' => now()->addDay(),
+    'password' => 'a-passphrase-chosen-by-the-user',
+    'max_uses' => 10,
+]);
+
+$abilities = Share::resolveToken($share->token, $viewer, $providedPassword);
 ```
 
-### 5. Accessing Relationships Directly
+Passwords are hashed and hidden from serialization. Token resolution checks expiry, revocation, password and current recipient admission. A successful resolution consumes one use; rejected resolutions consume none. The use limit is checked while locking the link inside a database transaction.
 
-You can access the relationship or the share properties directly:
+## Queries and revocation
 
 ```php
-// Get all shares for the model
-$shares = $post->shares;
+$documents = Document::sharedWith($team, 'reader')->get();
+$shared = $document->isSharedWith($team, 'reader');
+$sharedViaLink = $document->isSharedViaToken($token, $viewer, 'reader', $password);
 
-foreach ($shares as $share) {
-    // Get the owner of the share
-    $owner = $share->owner; // e.g. User model
-
-    // Get the shared model itself
-    $sharedModel = $share->shareable; // e.g. Post model
-
-    // Check properties
-    $access = $share->access;
-    $token = $share->token;
-    $revokedAt = $share->revoked_at;
-}
+$document->revokeShare($team);
+$document->revokeAllShares();
 ```
+
+Audience queries include active, unprotected links only. They select grants for an audience; the application must authorize the caller's access to that audience. Use token resolution when checking password-protected links or consuming a use allowance.
+
+Revoking an audience keeps other recipients on the same link. Soft-deleting a resource revokes its links, and restoring it does not restore access. Permanently deleting it removes links and their audience rows. Enable foreign keys when using SQLite so audience cleanup cascades.
+
+## Host model customization
+
+`config/shareables.php` allows subclasses of `Share` and `Audience`:
+
+```php
+'models' => [
+    'share' => App\Models\Share::class,
+    'audience' => App\Models\ShareAudience::class,
+],
+```
+
+The configured models use the package's columns and relations. Application-specific membership, authorization, response formatting and financial calculations remain with the host application.

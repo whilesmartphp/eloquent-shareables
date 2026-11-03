@@ -3,7 +3,7 @@
   "description": "Manage shareables",
   "type": "library",
   "license": "MIT",
-  "package-version": "1.0.0",
+  "package-version": "2.0.0",
   "authors": [
     {
       "name": "WhileSmart",
@@ -71,7 +71,7 @@
     "phpmd": [
       "vendor/bin/phpmd src text phpmd.xml"
     ],
-    "phpstan": "phpstan analyse src --memory-limit=2048M --level=5",
+    "phpstan": "phpstan analyse src workbench/app/Models --memory-limit=2048M --level=5",
     "phpcs": "phpcbf src",
     "phpcs:test": "phpcs src",
     "test": "vendor/bin/testbench package:test --coverage"

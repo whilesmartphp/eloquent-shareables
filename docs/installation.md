@@ -1,24 +1,18 @@
 # Installation
 
-You can install the **Eloquent Shareables** package via composer:
+Requires PHP 8.4 and Laravel 12.
 
 ```bash
-composer require whilesmart/eloquent-shareables
-```
-
-## Publishing Assets
-
-After installing the package, you should publish and run the migrations:
-
-```bash
-php artisan vendor:publish --tag="shareables-migrations"
+composer require whilesmart/eloquent-shareables:^2.0
 php artisan migrate
 ```
 
-You can optionally publish the configuration file to customize the default behavior:
+Package migrations load automatically. They create `shares` for link constraints and creator tracking, and `share_audiences` for typed recipients and per-recipient abilities.
+
+Configuration is optional:
 
 ```bash
-php artisan vendor:publish --tag="shareables-config"
+php artisan vendor:publish --tag=shareables-config
 ```
 
-This will create a `config/shareables.php` file in your application.
+The published `config/shareables.php` supports custom subclasses of the share and audience models. Recipient models implement the `ShareAudience` admission contract; shareable resources use the `Shareable` trait.
